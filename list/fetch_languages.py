@@ -13,13 +13,11 @@ import sys, os, getopt
 from langconv import Converter
 import myToolbox
 
-global LOCAL_DB
-global LOCAL_CURSOR
-global RUN_IN_BG
+global DB_CONNECTOR
+global DB_CURSOR
 
 def store_lang_info (lang, lang_info):
-	global LOCAL_DB
-	global LOCAL_CURSOR
+	global DB_CURSOR
 
 	if lang_info['iso_639_2'] != '':
 		iso_639_2 = lang_info['iso_639_2'].split ('/')
@@ -50,29 +48,47 @@ def store_lang_info (lang, lang_info):
 	VALUES (%s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE self_name=%s"""
 		params = (lang_info['iso_639_1'], lang_info['iso_639_2'], lang_info['iso_639_2_t'],
 				lang_info['iso_639_3'], lang_info['self_name'], lang_info['self_name'])
-		LOCAL_CURSOR.execute (sql, params)
+		if DB_CURSOR is None:
+			myToolbox.print_sql (sql, params)
+		else:
+			DB_CURSOR.execute (sql, params)
 
 		sql = """INSERT INTO api_language_localized_names (iso_639_1_code, locale, localized_name)
 	VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE localized_name=%s"""
 
 		params = (lang_info['iso_639_1'], lang_info['iso_639_1'], lang_info['self_name'], lang_info['self_name'])
-		LOCAL_CURSOR.execute (sql, params)
+		if DB_CURSOR is None:
+			myToolbox.print_sql (sql, params)
+		else:
+			DB_CURSOR.execute (sql, params)
 
 		if lang_info['en'] != '':
 			params = (lang_info['iso_639_1'], 'en', lang_info['en'], lang_info['en'])
-			LOCAL_CURSOR.execute (sql, params)
+			if DB_CURSOR is None:
+				myToolbox.print_sql (sql, params)
+			else:
+				DB_CURSOR.execute (sql, params)
 
 		if lang_info['zh_CN'] != '':
 			params = (lang_info['iso_639_1'], 'zh_CN', lang_info['zh_CN'], lang_info['zh_CN'])
-			LOCAL_CURSOR.execute (sql, params)
+			if DB_CURSOR is None:
+				myToolbox.print_sql (sql, params)
+			else:
+				DB_CURSOR.execute (sql, params)
 
 			name_zh = Converter ('zh-hant').convert(lang_info['zh_CN'])
 			params = (lang_info['iso_639_1'], 'zh', name_zh, name_zh)
-			LOCAL_CURSOR.execute (sql, params)
+			if DB_CURSOR is None:
+				myToolbox.print_sql (sql, params)
+			else:
+				DB_CURSOR.execute (sql, params)
 
 		if lang_info['zh_TW'] != '':
 			params = (lang_info['iso_639_1'], 'zh_TW', lang_info['zh_TW'], lang_info['zh_TW'])
-			LOCAL_CURSOR.execute (sql, params)
+			if DB_CURSOR is None:
+				myToolbox.print_sql (sql, params)
+			else:
+				DB_CURSOR.execute (sql, params)
 	else:
 		pass
 
@@ -142,83 +158,53 @@ def parse_page_content (lang, source_name, page_content):
 			lang_info = parse_td_cells (lang, all_cells)
 			store_lang_info (lang, lang_info)
 
-def main (lang):
-	global LOCAL_DB
-	global LOCAL_CURSOR
-	global RUN_IN_BG
+def main (lang, cache_dir):
+	global DB_CONNECTOR
+	global DB_CURSOR
 
 	start = time.time()
 
-	page_content = myToolbox.fetch_wikipedia_page_content (lang, 'ISO_639-1代码表')
+	page_content = myToolbox.fetch_wikipedia_page_content (lang, 'ISO_639-1代码表', cache_dir)
 
 	if page_content is not None:
-		LOCAL_DB = MySQLdb.connect (host="ldb", user="fsen_dev", passwd="db4FSEN-DEV@FMSoft0126", db="fsen_dev",
-				charset="utf8")
-		LOCAL_CURSOR = LOCAL_DB.cursor ()
-
 		parse_page_content (lang, 'ISO_639-1代码表', page_content)
-
 	else:
-		if RUN_IN_BG != 0:
-			os.remove ("/tmp/fetch_languages.pid")
 		sys.exit (0)
-
-	LOCAL_CURSOR.close ()
-	LOCAL_DB.commit ()
-
-	print "Elapsed Time: %s" % (time.time() - start)
-	if RUN_IN_BG != 0:
-		os.remove ("/tmp/fetch_languages.pid")
-	sys.exit (0)
 
 def usage ():
 	print "./fetch_languages.py [--help] [--background] [--lang=<en|zh|ja|...>]"
 
-RUN_IN_BG = 0
+start = time.time()
+
+DB_CONNECTOR = None
+DB_CURSOR = None
 lang = "zh"
-opts, args = getopt.getopt (sys.argv [1:], "hbl:", ["help", "background", "lang="])
+cache_dir = "data/"
+
+opts, args = getopt.getopt (sys.argv [1:], "hdl:c:", ["help", "enable-database", "with-lang=", "with-cache-dir"])
 for op, value in opts:
 	if op == "-h" or op == "--help":
 		usage ()
 		sys.exit (0)
-	elif op == "-l" or op == "--lang":
+	elif op == "-d" or op == "--enable-database":
+		import dbConfig
+		DB_CONNECTOR = MySQLdb.connect (host=dbConfig.host, user=dbConfig.user, passwd=dbConfig.passwd, db=dbConfig.name,
+				charset="utf8")
+		DB_CURSOR = DB_CONNECTOR.cursor ()
+	elif op == "-l" or op == "--with-lang":
 		lang = value
-	elif op == "-b" or op == "--background":
-		RUN_IN_BG = 1
+	elif op == "-c" or op == "--with-cache-dir":
+		cache_dir = value
 
 reload(sys)
 sys.setdefaultencoding('utf-8')
 
-if __name__ == "__main__" and RUN_IN_BG != 0:
-	# do the UNIX double-fork magic, see Stevens' "Advanced
-	# Programming in the UNIX Environment" for details (ISBN 0201563177)
-	try:
-		pid = os.fork ()
-		if pid > 0:
-			# exit first parent
-			sys.exit (0)
-	except OSError, e:
-		print ("INFO (%s) > Fork #1 failed: %d (%s)" % (myToolbox.get_time (), e.errno, e.strerror))
-		sys.exit (1)
+main (lang, cache_dir)
 
-	# decouple from parent environment
-	os.chdir ("/")
-	os.setsid ()
-	os.umask (0)
+if DB_CURSOR is not None:
+	DB_CURSOR.close ()
+	DB_CONNECTOR.commit ()
 
-	# do second fork
-	try:
-		pid = os.fork ()
-		if pid > 0:
-			# exit from second parent, print eventual PID before
-			print ("INFO (%s) > Daemon PID %d" % (myToolbox.get_time (), pid))
-			fd = open ("/tmp/fetch_languages.pid", "w")
-			fd.write ("%d" % pid)
-			fd.close ()
-			sys.exit (0)
-	except OSError, e:
-		print ("INFO (%s) > Fork #2 failed: %d (%s)" % (myToolbox.get_time (), e.errno, e.strerror))
-		sys.exit (1)
-
-main (lang)
+print "Elapsed Time: %s" % (time.time() - start)
+sys.exit (0)
 

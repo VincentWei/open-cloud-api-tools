@@ -40,22 +40,24 @@ def html_to_text(html):
 def get_time ():
 	return time.strftime ('%H:%M', time.localtime (time.time ()))
 
-def fetch_page_content (lang, country_code):
-
+def fetch_page_content (lang, country_code, cache_dir = ''):
 	if re.match (r'^[A-z]{2}$', country_code):
-		cached_filename = '/data/cached-pages/ISO_3166-2-' + country_code + '.' + lang
+		cached_filename = cache_dir + 'ISO_3166-2-' + country_code + '-' + lang + '.cache'
 		url = 'http://' + lang + '.wikipedia.org/wiki/ISO_3166-2:' + country_code
 	else:
-		cached_filename = '/data/cached-pages/ISO_3166-1.' + lang
+		cached_filename = cache_dir + 'ISO_3166-1-' + lang + '.cache'
 		url = 'http://' + lang + '.wikipedia.org/wiki/ISO_3166-1'
 
 	fd_cached = None
 	try:
+		print ("INFO (%s) > Trying to load content from %s" % (get_time (), cached_filename))
 		fd_cached = codecs.open (cached_filename, "r", "utf-8")
 		page_content = fd_cached.read ()
 		return page_content
 	except:
 		try:
+			print ("INFO (%s) > Fetching page from %s" % (get_time (), url))
+
 			request = urllib2.Request (url)
 			request.add_header ('User-Agent', 'Mozilla/5.0 (Windows; U; Windows NT 6.1; en-US; rv:1.9.1.6) Gecko/20091201 Firefox/3.5.6')
 			my_opener = urllib2.build_opener ()
@@ -91,18 +93,20 @@ def fetch_page_content (lang, country_code):
 
 	return None
 
-def fetch_wikipedia_page_content (lang, wiki_word):
+def fetch_wikipedia_page_content (lang, wiki_word, cache_dir = ''):
 
-	cached_filename = '/data/cached-pages/' + wiki_word
+	cached_filename = cache_dir + wiki_word + '.cache'
 	url = 'http://' + lang + '.wikipedia.org/wiki/' + wiki_word
 
 	fd_cached = None
 	try:
+		print ("INFO (%s) > Trying to load content from %s" % (get_time (), cached_filename))
 		fd_cached = codecs.open (cached_filename, "r", "utf-8")
 		page_content = fd_cached.read ()
 		return page_content
 	except:
 		try:
+			print ("INFO (%s) > Fetching page from %s" % (get_time (), url))
 			request = urllib2.Request (url)
 			request.add_header ('User-Agent', 'Mozilla/5.0 (Windows; U; Windows NT 6.1; en-US; rv:1.9.1.6) Gecko/20091201 Firefox/3.5.6')
 			my_opener = urllib2.build_opener ()
@@ -137,4 +141,9 @@ def fetch_wikipedia_page_content (lang, wiki_word):
 			fd_cached.close ()
 
 	return None
+
+def print_sql (sql, params):
+	sql = sql.replace ('%s', "'%s'")
+	sql = sql + ';'
+	print (sql % params)
 

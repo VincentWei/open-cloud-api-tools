@@ -13,51 +13,58 @@ import sys, os, getopt
 from langconv import Converter
 import myToolbox
 
-global LOCAL_DB
-global LOCAL_CURSOR
-global RUN_IN_BG
+global DB_CONNECTOR
+global DB_CURSOR
 
 def store_code_info (lang, code_info):
-	global LOCAL_DB
-	global LOCAL_CURSOR
+	global DB_CURSOR
 
 	if lang == 'en' and code_info['numeric_code'] != '':
 		sql = """INSERT INTO api_country_codes (numeric_code, alpha_2_code, alpha_3_code, iso_name)
 	VALUES (%s, %s, %s, %s) ON DUPLICATE KEY UPDATE iso_name=%s"""
 		params = (code_info['numeric_code'], code_info['alpha_2_code'], code_info['alpha_3_code'],
 				code_info['iso_name'], code_info['iso_name'])
-		LOCAL_CURSOR.execute (sql, params)
+		if DB_CURSOR is None:
+			myToolbox.print_sql (sql, params)
+		else:
+			DB_CURSOR.execute (sql, params)
 
 		sql = """INSERT INTO api_country_division_localized_names (division_id, locale, localized_name)
 	VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE localized_name=%s"""
 		params = (code_info['numeric_code'], 'en', code_info['iso_name'], code_info['iso_name'])
-		LOCAL_CURSOR.execute (sql, params)
+		if DB_CURSOR is None:
+			myToolbox.print_sql (sql, params)
+		else:
+			DB_CURSOR.execute (sql, params)
 
-		print ("INFO (%s) > Got and stored country code: %s, %s, %s, %s" % (myToolbox.get_time (),
-				code_info['numeric_code'], code_info['alpha_2_code'], code_info['alpha_3_code'],
-				code_info['iso_name']))
 	elif lang == 'zh' and re.match (r'^[0-9]{3}$', code_info['numeric_code']):
 		sql = """INSERT INTO api_country_division_localized_names (division_id, locale, localized_name)
 	VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE localized_name=%s"""
 
 		if code_info['zh_CN'] is not None:
 			params = (code_info['numeric_code'], 'zh_CN', code_info['zh_CN'], code_info['zh_CN'])
-			LOCAL_CURSOR.execute (sql, params)
+			if DB_CURSOR is None:
+				myToolbox.print_sql (sql, params)
+			else:
+				DB_CURSOR.execute (sql, params)
 
 			name_zh = Converter ('zh-hant').convert(code_info['zh_CN'])
 			params = (code_info['numeric_code'], 'zh', name_zh, name_zh)
-			LOCAL_CURSOR.execute (sql, params)
+			DB_CURSOR.execute (sql, params)
 
 		if code_info['zh_TW'] is not None:
 			params = (code_info['numeric_code'], 'zh_TW', code_info['zh_TW'], code_info['zh_TW'])
-			LOCAL_CURSOR.execute (sql, params)
+			if DB_CURSOR is None:
+				myToolbox.print_sql (sql, params)
+			else:
+				DB_CURSOR.execute (sql, params)
 
 		if code_info['zh_HK'] is not None:
 			params = (code_info['numeric_code'], 'zh_HK', code_info['zh_HK'], code_info['zh_HK'])
-			LOCAL_CURSOR.execute (sql, params)
-
-		print ("INFO (%s) > Got country code: %s, %s, %s, %s" % (myToolbox.get_time (),
-				code_info['numeric_code'], code_info['zh_CN'], code_info['zh_TW'], code_info['zh_HK']))
+			if DB_CURSOR is None:
+				myToolbox.print_sql (sql, params)
+			else:
+				DB_CURSOR.execute (sql, params)
 
 def guess_code_type (code_info, text):
 	if re.match (r'^[A-z]{2}$', text):
@@ -129,80 +136,49 @@ def parse_page_content (lang, country_code, page_content):
 			code_info = parse_td_cells (lang, all_cells)
 			store_code_info (lang, code_info)
 
-def main (lang):
-	global LOCAL_DB
-	global LOCAL_CURSOR
-	global RUN_IN_BG
-
-	start = time.time()
-
-	page_content = myToolbox.fetch_page_content (lang, '')
+def main (lang, cache_dir):
+	page_content = myToolbox.fetch_page_content (lang, '', cache_dir)
 
 	if page_content is not None:
-		LOCAL_DB = MySQLdb.connect (host="ldb", user="fsen_dev", passwd="db4FSEN-DEV@FMSoft0126", db="fsen_dev",
-				charset="utf8")
-		LOCAL_CURSOR = LOCAL_DB.cursor ()
-
 		parse_page_content (lang, '', page_content)
-
 	else:
-		if RUN_IN_BG != 0:
-			os.remove ("/tmp/fetch_country_code.pid")
 		sys.exit (0)
 
-	LOCAL_CURSOR.close ()
-	LOCAL_DB.commit ()
-
-	print "Elapsed Time: %s" % (time.time() - start)
-	if RUN_IN_BG != 0:
-		os.remove ("/tmp/fetch_country_code.pid")
-	sys.exit (0)
-
 def usage ():
-	print "./fetch_country_code.py [--help] [--background] [--lang=<en|zh|ja|...>]"
+	print "./fetch_country_code.py [--help | -h] [--enable-database | -d] [--with-lang=<en|zh|...> | -l <en|zh|...>]"
+	print "    [--with-cache-dir=<cache_dir> | -c <cache_dir>]"
+	print ""
+	print "    Please specify your database settings in dbConfig.py when you use --enable-database option."
 
-RUN_IN_BG = 0
+start = time.time()
+
+DB_CONNECTOR = None
+DB_CURSOR = None
+
 lang = "en"
-opts, args = getopt.getopt (sys.argv [1:], "hbl:", ["help", "background", "lang="])
+cache_dir = "data/"
+
+opts, args = getopt.getopt (sys.argv [1:], "hdl:c:", ["help", "enable-database", "with-lang=", "with-cache-dir"])
 for op, value in opts:
 	if op == "-h" or op == "--help":
 		usage ()
 		sys.exit (0)
-	elif op == "-l" or op == "--lang":
+	elif op == "-d" or op == "--enable-database":
+		import dbConfig
+		DB_CONNECTOR = MySQLdb.connect (host=dbConfig.host, user=dbConfig.user, passwd=dbConfig.passwd, db=dbConfig.name,
+				charset="utf8")
+		DB_CURSOR = DB_CONNECTOR.cursor ()
+	elif op == "-l" or op == "--with-lang":
 		lang = value
-	elif op == "-b" or op == "--background":
-		RUN_IN_BG = 1
+	elif op == "-c" or op == "--with-cache-dir":
+		cache_dir = value
 
-if __name__ == "__main__" and RUN_IN_BG != 0:
-	# do the UNIX double-fork magic, see Stevens' "Advanced
-	# Programming in the UNIX Environment" for details (ISBN 0201563177)
-	try:
-		pid = os.fork ()
-		if pid > 0:
-			# exit first parent
-			sys.exit (0)
-	except OSError, e:
-		print ("INFO (%s) > Fork #1 failed: %d (%s)" % (myToolbox.get_time (), e.errno, e.strerror))
-		sys.exit (1)
+main (lang, cache_dir)
 
-	# decouple from parent environment
-	os.chdir ("/")
-	os.setsid ()
-	os.umask (0)
+if DB_CURSOR is not None:
+	DB_CURSOR.close ()
+	DB_CONNECTOR.commit ()
 
-	# do second fork
-	try:
-		pid = os.fork ()
-		if pid > 0:
-			# exit from second parent, print eventual PID before
-			print ("INFO (%s) > Daemon PID %d" % (myToolbox.get_time (), pid))
-			fd = open ("/tmp/fetch_country_code.pid", "w")
-			fd.write ("%d" % pid)
-			fd.close ()
-			sys.exit (0)
-	except OSError, e:
-		print ("INFO (%s) > Fork #2 failed: %d (%s)" % (myToolbox.get_time (), e.errno, e.strerror))
-		sys.exit (1)
-
-main (lang)
+print "Elapsed Time: %s" % (time.time() - start)
+sys.exit (0)
 
