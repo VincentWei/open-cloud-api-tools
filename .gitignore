@@ -1,3 +1,6 @@
 pv*.py
 *.pyc
 *.cache
+*.tgz
+*.gz
+*.zip
